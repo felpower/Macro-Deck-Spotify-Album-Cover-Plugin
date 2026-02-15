@@ -1,5 +1,7 @@
 using System.Collections.Concurrent;
+using System.IO;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using SuchByte.MacroDeck.ActionButton;
 using SuchByte.MacroDeck.CottleIntegration;
 using SuchByte.MacroDeck.GUI;
@@ -13,10 +15,21 @@ namespace ImageFromUrlPlugin;
 public sealed class SpotifyImageAction : PluginAction
 {
     private const string IconPackName = "ImageFromUrl";
-    private const int MinButtonCooldownSeconds = 3;
+    private const string IconPackPackageId = "felba.ImageFromUrl";
+    private const int MinButtonCooldownSeconds = 12;
+    private const int ButtonCooldownJitterSeconds = 6;
+    private const int TitleChangeDebounceSeconds = 5;
     private static readonly ConcurrentDictionary<string, DateTimeOffset> LastFetchByKey = new();
     private static readonly ConcurrentDictionary<string, DateTimeOffset> LastFetchByButton = new();
     private static readonly ConcurrentDictionary<string, string> LastTitleByButton = new();
+    private static readonly ConcurrentDictionary<string, DateTimeOffset> NextAllowedByButton = new();
+    private static readonly ConcurrentDictionary<string, (string Key, DateTimeOffset ChangedAt)> PendingTitleByButton = new();
+    private static readonly string IconPackFolder = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "Macro Deck",
+        "iconpacks",
+        IconPackPackageId);
+    private static readonly string IconPackManifestPath = Path.Combine(IconPackFolder, "ExtensionManifest.json");
 
     public override string Name => "spotify_image";
     public override string Description => "Finds the top Spotify track and sets the button icon to its album art.";
@@ -24,7 +37,7 @@ public sealed class SpotifyImageAction : PluginAction
 
     public SpotifyImageAction()
     {
-        DisplayName = "Spotify Album Art (Title + Artist)";
+        ConfigurationSummary = "Spotify Album Art (Title + Artist)";
     }
 
     public override ActionConfigControl GetActionConfigControl(ActionConfigurator actionConfigurator)
@@ -104,6 +117,12 @@ public sealed class SpotifyImageAction : PluginAction
             var iconString = $"{IconPackName}.{iconId}";
             var key = $"{resolvedTitle}|{resolvedArtist}";
 
+            if (ShouldDebounceTitleChange(actionButton.Guid, key))
+            {
+                MacroDeckLogger.Info(ImageFromUrlPlugin.Instance, "Waiting for title/artist to settle before fetching Spotify art.");
+                return;
+            }
+
             var iconPack = IconManager.GetIconPackByName(IconPackName);
             if (iconPack == null)
             {
@@ -163,6 +182,8 @@ public sealed class SpotifyImageAction : PluginAction
             }
 
             LastFetchByButton[actionButton.Guid] = DateTimeOffset.UtcNow;
+            NextAllowedByButton[actionButton.Guid] = DateTimeOffset.UtcNow.AddSeconds(
+                MinButtonCooldownSeconds + Random.Shared.Next(0, ButtonCooldownJitterSeconds + 1));
 
             var imageUrl = await SpotifyClient.SearchAlbumArtUrlAsync(resolvedTitle, resolvedArtist, ImageFromUrlPlugin.Instance);
             if (string.IsNullOrWhiteSpace(imageUrl))
@@ -178,6 +199,7 @@ public sealed class SpotifyImageAction : PluginAction
             {
                 IconManager.AddIconImage(iconPack, resized, iconId);
                 IconManager.SaveIconPack(iconPack);
+                TryRefreshIconPack(ImageFromUrlPlugin.Instance);
             }
 
             ApplyIcon(actionButton, iconString);
@@ -207,12 +229,29 @@ public sealed class SpotifyImageAction : PluginAction
 
     private static bool IsButtonCooldownDue(string buttonGuid)
     {
+        if (NextAllowedByButton.TryGetValue(buttonGuid, out var nextAllowed))
+        {
+            return DateTimeOffset.UtcNow >= nextAllowed;
+        }
+
         if (!LastFetchByButton.TryGetValue(buttonGuid, out var last))
         {
             return true;
         }
 
         return DateTimeOffset.UtcNow - last >= TimeSpan.FromSeconds(MinButtonCooldownSeconds);
+    }
+
+    private static bool ShouldDebounceTitleChange(string buttonGuid, string key)
+    {
+        if (!PendingTitleByButton.TryGetValue(buttonGuid, out var pending) ||
+            !string.Equals(pending.Key, key, StringComparison.Ordinal))
+        {
+            PendingTitleByButton[buttonGuid] = (key, DateTimeOffset.UtcNow);
+            return true;
+        }
+
+        return DateTimeOffset.UtcNow - pending.ChangedAt < TimeSpan.FromSeconds(TitleChangeDebounceSeconds);
     }
 
     private static void ApplyIcon(ActionButton actionButton, string iconString)
@@ -224,5 +263,35 @@ public sealed class SpotifyImageAction : PluginAction
         }
 
         actionButton.UpdateBindingState();
+    }
+
+    private static void TryRefreshIconPack(ImageFromUrlPlugin plugin)
+    {
+        try
+        {
+            if (!File.Exists(IconPackManifestPath))
+            {
+                return;
+            }
+
+            var json = File.ReadAllText(IconPackManifestPath);
+            if (JsonNode.Parse(json) is not JsonObject obj)
+            {
+                return;
+            }
+
+            var versionSuffix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            obj["version"] = $"1.0.0+{versionSuffix}";
+            File.WriteAllText(IconPackManifestPath, obj.ToJsonString(new JsonSerializerOptions
+            {
+                WriteIndented = true
+            }));
+
+            IconManager.LoadIconPack(IconPackFolder);
+        }
+        catch (Exception ex)
+        {
+            MacroDeckLogger.Warning(plugin, $"Icon pack refresh failed: {ex.Message}");
+        }
     }
 }
