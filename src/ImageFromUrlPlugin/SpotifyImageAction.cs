@@ -24,6 +24,9 @@ public sealed class SpotifyImageAction : PluginAction
     private static readonly ConcurrentDictionary<string, string> LastTitleByButton = new();
     private static readonly ConcurrentDictionary<string, DateTimeOffset> NextAllowedByButton = new();
     private static readonly ConcurrentDictionary<string, (string Key, DateTimeOffset ChangedAt)> PendingTitleByButton = new();
+    private static readonly ConcurrentDictionary<string, string> LastIconIdByButton = new();
+    private static readonly ConcurrentDictionary<string, int> IconUsageCounts = new();
+    private static readonly ConcurrentDictionary<string, CancellationTokenSource> DebounceTimers = new();
     private static readonly string IconPackFolder = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "Macro Deck",
@@ -117,12 +120,6 @@ public sealed class SpotifyImageAction : PluginAction
             var iconString = $"{IconPackName}.{iconId}";
             var key = $"{resolvedTitle}|{resolvedArtist}";
 
-            if (ShouldDebounceTitleChange(actionButton.Guid, key))
-            {
-                MacroDeckLogger.Info(ImageFromUrlPlugin.Instance, "Waiting for title/artist to settle before fetching Spotify art.");
-                return;
-            }
-
             var iconPack = IconManager.GetIconPackByName(IconPackName);
             if (iconPack == null)
             {
@@ -136,12 +133,25 @@ public sealed class SpotifyImageAction : PluginAction
                 return;
             }
 
+            if (ShouldDebounceTitleChange(actionButton.Guid, key, out var keyChanged))
+            {
+                if (keyChanged)
+                {
+                    ReleaseIconForButton(actionButton.Guid, iconPack);
+                    ClearIcon(actionButton);
+                    ScheduleDebouncedUpdate(actionButton, key);
+                }
+
+                MacroDeckLogger.Info(ImageFromUrlPlugin.Instance, "Waiting for title/artist to settle before fetching Spotify art.");
+                return;
+            }
+
             var existing = IconManager.GetIcon(iconPack, iconId);
             if (LastTitleByButton.TryGetValue(actionButton.Guid, out var lastTitle) &&
                 string.Equals(lastTitle, resolvedTitle, StringComparison.OrdinalIgnoreCase) &&
                 existing != null)
             {
-                ApplyIcon(actionButton, iconString);
+                ApplyIconAndTrack(actionButton, iconPack, iconId, iconString);
                 return;
             }
 
@@ -150,21 +160,21 @@ public sealed class SpotifyImageAction : PluginAction
                 if (string.Equals(actionButton.IconOff, iconString, StringComparison.OrdinalIgnoreCase) &&
                     !IsRefreshDue(key, config.MinRefreshSeconds))
                 {
-                    ApplyIcon(actionButton, iconString);
+                    ApplyIconAndTrack(actionButton, iconPack, iconId, iconString);
                     LastTitleByButton[actionButton.Guid] = resolvedTitle;
                     return;
                 }
 
                 if (config.OnlyUpdateIfMissing)
                 {
-                    ApplyIcon(actionButton, iconString);
+                    ApplyIconAndTrack(actionButton, iconPack, iconId, iconString);
                     LastTitleByButton[actionButton.Guid] = resolvedTitle;
                     return;
                 }
 
                 if (!IsRefreshDue(key, config.MinRefreshSeconds))
                 {
-                    ApplyIcon(actionButton, iconString);
+                    ApplyIconAndTrack(actionButton, iconPack, iconId, iconString);
                     LastTitleByButton[actionButton.Guid] = resolvedTitle;
                     return;
                 }
@@ -202,7 +212,7 @@ public sealed class SpotifyImageAction : PluginAction
                 TryRefreshIconPack(ImageFromUrlPlugin.Instance);
             }
 
-            ApplyIcon(actionButton, iconString);
+            ApplyIconAndTrack(actionButton, iconPack, iconId, iconString);
             LastFetchByKey[key] = DateTimeOffset.UtcNow;
             LastTitleByButton[actionButton.Guid] = resolvedTitle;
         }
@@ -242,16 +252,124 @@ public sealed class SpotifyImageAction : PluginAction
         return DateTimeOffset.UtcNow - last >= TimeSpan.FromSeconds(MinButtonCooldownSeconds);
     }
 
-    private static bool ShouldDebounceTitleChange(string buttonGuid, string key)
+    private static bool ShouldDebounceTitleChange(string buttonGuid, string key, out bool keyChanged)
     {
+        keyChanged = false;
         if (!PendingTitleByButton.TryGetValue(buttonGuid, out var pending) ||
             !string.Equals(pending.Key, key, StringComparison.Ordinal))
         {
             PendingTitleByButton[buttonGuid] = (key, DateTimeOffset.UtcNow);
+            keyChanged = true;
             return true;
         }
 
         return DateTimeOffset.UtcNow - pending.ChangedAt < TimeSpan.FromSeconds(TitleChangeDebounceSeconds);
+    }
+
+    private void ScheduleDebouncedUpdate(ActionButton actionButton, string key)
+    {
+        var cts = new CancellationTokenSource();
+        if (DebounceTimers.TryGetValue(actionButton.Guid, out var existingCts))
+        {
+            existingCts.Cancel();
+            existingCts.Dispose();
+        }
+
+        DebounceTimers[actionButton.Guid] = cts;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(TitleChangeDebounceSeconds), cts.Token);
+                if (cts.IsCancellationRequested || actionButton.IsDisposed)
+                {
+                    return;
+                }
+
+                if (PendingTitleByButton.TryGetValue(actionButton.Guid, out var pending) &&
+                    string.Equals(pending.Key, key, StringComparison.Ordinal))
+                {
+                    await UpdateButtonIconAsync(actionButton);
+                }
+            }
+            catch (TaskCanceledException)
+            {
+            }
+        });
+    }
+
+    private static void ApplyIconAndTrack(ActionButton actionButton, IconPack iconPack, string iconId, string iconString)
+    {
+        UpdateIconUsage(actionButton.Guid, iconPack, iconId);
+        ApplyIcon(actionButton, iconString);
+    }
+
+    private static void UpdateIconUsage(string buttonGuid, IconPack iconPack, string iconId)
+    {
+        if (LastIconIdByButton.TryGetValue(buttonGuid, out var currentId) &&
+            string.Equals(currentId, iconId, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(currentId))
+        {
+            DecrementIconUsage(iconPack, currentId);
+        }
+
+        LastIconIdByButton[buttonGuid] = iconId;
+        IconUsageCounts.AddOrUpdate(iconId, 1, (_, count) => count + 1);
+    }
+
+    private static void ReleaseIconForButton(string buttonGuid, IconPack iconPack)
+    {
+        if (!LastIconIdByButton.TryRemove(buttonGuid, out var currentId))
+        {
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(currentId))
+        {
+            DecrementIconUsage(iconPack, currentId);
+        }
+    }
+
+    private static void DecrementIconUsage(IconPack iconPack, string iconId)
+    {
+        while (true)
+        {
+            if (!IconUsageCounts.TryGetValue(iconId, out var count))
+            {
+                return;
+            }
+
+            if (count <= 1)
+            {
+                if (IconUsageCounts.TryRemove(iconId, out _))
+                {
+                    DeleteIconIfExists(iconPack, iconId);
+                }
+                return;
+            }
+
+            if (IconUsageCounts.TryUpdate(iconId, count - 1, count))
+            {
+                return;
+            }
+        }
+    }
+
+    private static void DeleteIconIfExists(IconPack iconPack, string iconId)
+    {
+        var icon = IconManager.GetIcon(iconPack, iconId);
+        if (icon == null)
+        {
+            return;
+        }
+
+        IconManager.DeleteIcon(iconPack, icon);
+        IconManager.SaveIconPack(iconPack);
+        TryRefreshIconPack(ImageFromUrlPlugin.Instance);
     }
 
     private static void ApplyIcon(ActionButton actionButton, string iconString)
@@ -262,6 +380,13 @@ public sealed class SpotifyImageAction : PluginAction
             actionButton.IconOn = iconString;
         }
 
+        actionButton.UpdateBindingState();
+    }
+
+    private static void ClearIcon(ActionButton actionButton)
+    {
+        actionButton.IconOff = string.Empty;
+        actionButton.IconOn = string.Empty;
         actionButton.UpdateBindingState();
     }
 
