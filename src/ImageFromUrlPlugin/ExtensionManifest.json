@@ -1,0 +1,11 @@
+{
+  "type": "Plugin",
+  "name": "Image From URL",
+  "author": "felba",
+  "repository": "",
+  "packageId": "felba.ImageFromUrl",
+  "version": "1.0.0",
+  "target-plugin-api-version": 40,
+  "target-macro-deck-version": "2.14.1",
+  "dll": "ImageFromUrlPlugin.dll"
+}
