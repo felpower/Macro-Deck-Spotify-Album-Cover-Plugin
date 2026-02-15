@@ -7,8 +7,11 @@
     <UseWindowsForms>true</UseWindowsForms>
     <UseSystemDrawing>true</UseSystemDrawing>
     <NoWarn>$(NoWarn);MSB3277</NoWarn>
+<<<<<<< HEAD:src/SpotifyAlbumCoverPlugin/SpotifyAlbumCoverPlugin.csproj
     <AssemblyName>SpotifyAlbumCoverPlugin</AssemblyName>
     <RootNamespace>SpotifyAlbumCoverPlugin</RootNamespace>
+=======
+>>>>>>> 73dd329 (added timeouts for Images):src/ImageFromUrlPlugin/ImageFromUrlPlugin.csproj
   </PropertyGroup>
 
   <ItemGroup>
