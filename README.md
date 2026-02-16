@@ -33,7 +33,7 @@ Displays the album art of the currently playing Spotify track on a Macro Deck bu
 
 ## Support
 
-Discord: <@232548324614340610>
+Discord: [felpower](https://discord.com/users/232548324614340610)
 
 ## License
 
