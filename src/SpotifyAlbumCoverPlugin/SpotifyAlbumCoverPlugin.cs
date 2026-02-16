@@ -1,4 +1,3 @@
-using System.Drawing;
 using SuchByte.MacroDeck.Logging;
 using SuchByte.MacroDeck.Plugins;
 
@@ -23,7 +22,6 @@ public sealed class SpotifyAlbumCoverPlugin : MacroDeckPlugin
     {
         MacroDeckLogger.Info(this, "SpotifyAlbumCoverPlugin enabled.");
 
-        // Wir suchen das Event manuell, um Compiler-Fehler zu vermeiden
         var eventInfo = typeof(SuchByte.MacroDeck.Variables.VariableManager).GetEvent("VariableChanged")
                      ?? typeof(SuchByte.MacroDeck.Variables.VariableManager).GetEvent("OnVariableChanged");
 
@@ -38,19 +36,19 @@ public sealed class SpotifyAlbumCoverPlugin : MacroDeckPlugin
         }
     }
 
-    // Die Methode muss genau diese Signatur haben (object, EventArgs oder dynamic)
     private void OnVariableChanged(object sender, EventArgs e)
     {
         try
         {
-            // Wir nutzen dynamic, um auf die Property 'Variable' zuzugreifen
             dynamic ev = e;
             if (ev.Variable.Name == "spotify_playing_title")
             {
                 SpotifyImageAction.TriggerUpdateForAllButtons();
             }
         }
-        catch { /* Falls die Property nicht existiert */ }
+        catch
+        {
+        }
     }
 
     public override void OpenConfigurator()
