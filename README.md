@@ -26,7 +26,6 @@ Each release includes:
 
 - `SpotifyAlbumCoverPlugin.macroDeckPlugin` for easy install
 - Versioned release notes
-
 ## Setup
 
 1. Open the plugin configuration and enter your Spotify API Client ID and Client Secret.
