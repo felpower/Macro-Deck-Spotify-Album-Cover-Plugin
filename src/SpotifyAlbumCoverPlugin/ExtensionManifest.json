@@ -4,7 +4,7 @@
   "author": "felba",
   "repository": "https://github.com/felpower/Macro-Deck-Spotify-Album-Cover-Plugin",
   "packageId": "felba.SpotifyAlbumCoverPlugin",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "target-plugin-api-version": 40,
   "target-macro-deck-version": "2.14.1",
   "dll": "SpotifyAlbumCoverPlugin.dll",

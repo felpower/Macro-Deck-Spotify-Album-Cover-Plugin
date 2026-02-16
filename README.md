@@ -18,6 +18,15 @@ Displays the album art of the currently playing Spotify track on a Macro Deck bu
 1. Download the latest `SpotifyAlbumCoverPlugin.macroDeckPlugin` from Releases.
 2. In Macro Deck, open Extensions and install the plugin.
 
+## Download
+
+Releases: <https://github.com/felpower/Macro-Deck-Spotify-Album-Cover-Plugin/releases>
+
+Each release includes:
+
+- `SpotifyAlbumCoverPlugin.macroDeckPlugin` for easy install
+- Versioned release notes
+
 ## Setup
 
 1. Open the plugin configuration and enter your Spotify API Client ID and Client Secret.
