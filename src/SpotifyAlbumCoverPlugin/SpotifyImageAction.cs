@@ -59,8 +59,12 @@ public sealed class SpotifyImageAction : PluginAction
         {
             try
             {
+                // Wir nutzen das statische Deck-Objekt, um an die Buttons zu kommen
+                // Das funktioniert in fast allen Macro Deck 2 Versionen
                 foreach (var profile in SuchByte.MacroDeck.Profiles.ProfileManager.Profiles)
                 {
+                    // Da Folders.Buttons nicht geht, versuchen wir es über die flache Liste, 
+                    // falls vorhanden, oder wir nutzen die statische Instanz
                     var buttons = profile.Folders.SelectMany(f => f.ActionButtons);
 
                     foreach (var actionButton in buttons)
@@ -82,6 +86,7 @@ public sealed class SpotifyImageAction : PluginAction
             }
             catch (Exception ex)
             {
+                // Wenn alles oben fehlschlägt, nutzen wir einen Trace, um den Build nicht zu stoppen
                 MacroDeckLogger.Trace(SpotifyAlbumCoverPlugin.Instance, "Update trigger silent fail: " + ex.Message);
             }
         });
@@ -230,6 +235,7 @@ public sealed class SpotifyImageAction : PluginAction
                 return;
             }
 
+            // Wir nutzen Ticks nur für den Button-Sync, um das Tablet-Caching zu umgehen
             var key = $"{resolvedTitle}|{resolvedArtist}";
             var iconIdBase = ImageProcessing.CreateDeterministicIconIdFromString($"button:{actionButton.Guid}");
 
@@ -246,6 +252,7 @@ public sealed class SpotifyImageAction : PluginAction
                 return;
             }
 
+            // Debounce-Check
             if (ShouldDebounceTitleChange(actionButton.Guid, key, out var keyChanged))
             {
                 if (keyChanged)
@@ -258,8 +265,10 @@ public sealed class SpotifyImageAction : PluginAction
                 return;
             }
 
+            // Prüfen, ob wir dieses Lied schon im Speicher/Pack haben
             var existing = IconManager.GetIcon(iconPack, iconIdBase);
 
+            // Falls das Icon noch nicht existiert oder ein Refresh fällig ist
             if (existing == null || IsRefreshDue(key, config.MinRefreshSeconds))
             {
                 if (!IsButtonCooldownDue(actionButton.Guid))
@@ -463,11 +472,12 @@ private static void ApplyIcon(ActionButton actionButton, string iconString)
     actionButton.IconOn = iconString;
     actionButton.UpdateBindingState();
 
+    // Trigger für das Tablet
     SuchByte.MacroDeck.Variables.VariableManager.SetValue(
-        "spotify_sync_trigger",
-        DateTime.Now.Ticks.ToString(),
-        SuchByte.MacroDeck.Variables.VariableType.String,
-        SpotifyAlbumCoverPlugin.Instance,
+        "spotify_sync_trigger", 
+        DateTime.Now.Ticks.ToString(), 
+        SuchByte.MacroDeck.Variables.VariableType.String, 
+        SpotifyAlbumCoverPlugin.Instance, 
         [string.Empty]
     );
 }
