@@ -16,6 +16,8 @@
 *.log
 *.tmp
 *.cache
+*.macroDeckPlugin
+_macrodeck_pkg_tmp/
 
 # Test results
 TestResults/
