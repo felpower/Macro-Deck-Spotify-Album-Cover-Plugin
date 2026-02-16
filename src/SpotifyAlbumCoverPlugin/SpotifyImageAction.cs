@@ -10,12 +10,12 @@ using SuchByte.MacroDeck.Icons;
 using SuchByte.MacroDeck.Logging;
 using SuchByte.MacroDeck.Plugins;
 
-namespace ImageFromUrlPlugin;
+namespace SpotifyAlbumCoverPlugin;
 
 public sealed class SpotifyImageAction : PluginAction
 {
-    private const string IconPackName = "ImageFromUrl";
-    private const string IconPackPackageId = "felba.ImageFromUrl";
+    private const string IconPackName = "SpotifyAlbumCover";
+    private const string IconPackPackageId = "felba.SpotifyAlbumCoverPlugin";
     private const int MinButtonCooldownSeconds = 12;
     private const int ButtonCooldownJitterSeconds = 6;
     private const int TitleChangeDebounceSeconds = 5;
@@ -53,6 +53,108 @@ public sealed class SpotifyImageAction : PluginAction
         _ = UpdateButtonIconAsync(actionButton);
     }
 
+    public static void TriggerUpdateForAllButtons()
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                // Wir nutzen das statische Deck-Objekt, um an die Buttons zu kommen
+                // Das funktioniert in fast allen Macro Deck 2 Versionen
+                foreach (var profile in SuchByte.MacroDeck.Profiles.ProfileManager.Profiles)
+                {
+                    // Da Folders.Buttons nicht geht, versuchen wir es über die flache Liste, 
+                    // falls vorhanden, oder wir nutzen die statische Instanz
+                    var buttons = profile.Folders.SelectMany(f => f.ActionButtons);
+
+                    foreach (var actionButton in buttons)
+                    {
+                        if (actionButton.Actions.Any(a => a is SpotifyImageAction || a != null && a.Name == "spotify_image"))
+                        {
+                            var actionInstance = new SpotifyImageAction();
+                            await actionInstance.UpdateButtonIconAsync(actionButton);
+                        }
+                    }
+                }
+
+                var iconPack = IconManager.GetIconPackByName(IconPackName);
+                if (iconPack != null)
+                {
+                    var activeIds = GetActiveIconIds();
+                    CleanupUnusedIcons(iconPack, activeIds);
+                }
+            }
+            catch (Exception ex)
+            {
+                // Wenn alles oben fehlschlägt, nutzen wir einen Trace, um den Build nicht zu stoppen
+                MacroDeckLogger.Trace(SpotifyAlbumCoverPlugin.Instance, "Update trigger silent fail: " + ex.Message);
+            }
+        });
+    }
+
+    private static HashSet<string> GetActiveIconIds()
+    {
+        var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            foreach (var profile in SuchByte.MacroDeck.Profiles.ProfileManager.Profiles)
+            {
+                var buttons = profile.Folders.SelectMany(f => f.ActionButtons);
+                foreach (var actionButton in buttons)
+                {
+                    if (actionButton.Actions.Any(a => a is SpotifyImageAction || a != null && a.Name == "spotify_image"))
+                    {
+                        ids.Add(ImageProcessing.CreateDeterministicIconIdFromString($"button:{actionButton.Guid}"));
+                    }
+                }
+            }
+        }
+        catch
+        {
+            return ids;
+        }
+
+        return ids;
+    }
+
+    private static void CleanupUnusedIcons(IconPack iconPack, HashSet<string> activeIds)
+    {
+        if (activeIds.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            var icons = new List<dynamic>();
+            foreach (var icon in ((dynamic)iconPack).Icons)
+            {
+                icons.Add(icon);
+            }
+
+            var deleted = false;
+            foreach (var icon in icons)
+            {
+                var iconId = (string)icon.Id;
+                if (!activeIds.Contains(iconId))
+                {
+                    IconManager.DeleteIcon(iconPack, icon);
+                    deleted = true;
+                }
+            }
+
+            if (deleted)
+            {
+                IconManager.SaveIconPack(iconPack);
+                TryRefreshIconPack(SpotifyAlbumCoverPlugin.Instance);
+            }
+        }
+        catch (Exception ex)
+        {
+            MacroDeckLogger.Warning(SpotifyAlbumCoverPlugin.Instance, $"Icon cleanup skipped: {ex.Message}");
+        }
+    }
+
     public override void OnActionButtonLoaded()
     {
         ConfigurationSummary = BuildSummary(GetConfig());
@@ -62,17 +164,33 @@ public sealed class SpotifyImageAction : PluginAction
     {
         if (string.IsNullOrWhiteSpace(Configuration))
         {
-            return new SpotifyImageActionConfig();
+            return ApplyDefaultVariables(new SpotifyImageActionConfig());
         }
 
         try
         {
-            return JsonSerializer.Deserialize<SpotifyImageActionConfig>(Configuration) ?? new SpotifyImageActionConfig();
+            var config = JsonSerializer.Deserialize<SpotifyImageActionConfig>(Configuration) ?? new SpotifyImageActionConfig();
+            return ApplyDefaultVariables(config);
         }
         catch
         {
-            return new SpotifyImageActionConfig();
+            return ApplyDefaultVariables(new SpotifyImageActionConfig());
         }
+    }
+
+    private static SpotifyImageActionConfig ApplyDefaultVariables(SpotifyImageActionConfig config)
+    {
+        if (string.IsNullOrWhiteSpace(config.Title))
+        {
+            config.Title = "{current_playing_title}";
+        }
+
+        if (string.IsNullOrWhiteSpace(config.Artist))
+        {
+            config.Artist = "{current_playing_artist}";
+        }
+
+        return config;
     }
 
     internal void UpdateConfiguration(SpotifyImageActionConfig config)
@@ -103,22 +221,23 @@ public sealed class SpotifyImageAction : PluginAction
         return $"{title} - {artist}";
     }
 
-    private async Task UpdateButtonIconAsync(ActionButton actionButton)
+    internal async Task UpdateButtonIconAsync(ActionButton actionButton)
     {
         try
         {
             var config = GetConfig();
             var resolvedTitle = TemplateManager.RenderTemplate(config.Title ?? string.Empty).Trim();
             var resolvedArtist = TemplateManager.RenderTemplate(config.Artist ?? string.Empty).Trim();
+
             if (string.IsNullOrWhiteSpace(resolvedTitle) || string.IsNullOrWhiteSpace(resolvedArtist))
             {
-                MacroDeckLogger.Warning(ImageFromUrlPlugin.Instance, "Title or artist is missing. Configure the action first.");
+                MacroDeckLogger.Warning(SpotifyAlbumCoverPlugin.Instance, "Title or artist is missing. Configure the action first.");
                 return;
             }
 
-            var iconId = ImageProcessing.CreateDeterministicIconId(resolvedTitle, resolvedArtist);
-            var iconString = $"{IconPackName}.{iconId}";
+            // Wir nutzen Ticks nur für den Button-Sync, um das Tablet-Caching zu umgehen
             var key = $"{resolvedTitle}|{resolvedArtist}";
+            var iconIdBase = ImageProcessing.CreateDeterministicIconIdFromString($"button:{actionButton.Guid}");
 
             var iconPack = IconManager.GetIconPackByName(IconPackName);
             if (iconPack == null)
@@ -129,10 +248,11 @@ public sealed class SpotifyImageAction : PluginAction
 
             if (iconPack == null)
             {
-                MacroDeckLogger.Error(ImageFromUrlPlugin.Instance, "Failed to create or load icon pack.");
+                MacroDeckLogger.Error(SpotifyAlbumCoverPlugin.Instance, "Failed to create or load icon pack.");
                 return;
             }
 
+            // Debounce-Check
             if (ShouldDebounceTitleChange(actionButton.Guid, key, out var keyChanged))
             {
                 if (keyChanged)
@@ -141,84 +261,58 @@ public sealed class SpotifyImageAction : PluginAction
                     ClearIcon(actionButton);
                     ScheduleDebouncedUpdate(actionButton, key);
                 }
-
-                MacroDeckLogger.Info(ImageFromUrlPlugin.Instance, "Waiting for title/artist to settle before fetching Spotify art.");
+                MacroDeckLogger.Info(SpotifyAlbumCoverPlugin.Instance, "Waiting for title/artist to settle before fetching Spotify art.");
                 return;
             }
 
-            var existing = IconManager.GetIcon(iconPack, iconId);
-            if (LastTitleByButton.TryGetValue(actionButton.Guid, out var lastTitle) &&
-                string.Equals(lastTitle, resolvedTitle, StringComparison.OrdinalIgnoreCase) &&
-                existing != null)
-            {
-                ApplyIconAndTrack(actionButton, iconPack, iconId, iconString);
-                return;
-            }
+            // Prüfen, ob wir dieses Lied schon im Speicher/Pack haben
+            var existing = IconManager.GetIcon(iconPack, iconIdBase);
 
-            if (existing != null)
+            // Falls das Icon noch nicht existiert oder ein Refresh fällig ist
+            if (existing == null || IsRefreshDue(key, config.MinRefreshSeconds))
             {
-                if (string.Equals(actionButton.IconOff, iconString, StringComparison.OrdinalIgnoreCase) &&
-                    !IsRefreshDue(key, config.MinRefreshSeconds))
+                if (!IsButtonCooldownDue(actionButton.Guid))
                 {
-                    ApplyIconAndTrack(actionButton, iconPack, iconId, iconString);
-                    LastTitleByButton[actionButton.Guid] = resolvedTitle;
+                    MacroDeckLogger.Info(SpotifyAlbumCoverPlugin.Instance, "Skipping Spotify fetch due to button cooldown.");
                     return;
                 }
 
-                if (config.OnlyUpdateIfMissing)
+                LastFetchByButton[actionButton.Guid] = DateTimeOffset.UtcNow;
+                NextAllowedByButton[actionButton.Guid] = DateTimeOffset.UtcNow.AddSeconds(
+                    MinButtonCooldownSeconds + Random.Shared.Next(0, ButtonCooldownJitterSeconds + 1));
+
+                var imageUrl = await SpotifyClient.SearchAlbumArtUrlAsync(resolvedTitle, resolvedArtist, SpotifyAlbumCoverPlugin.Instance);
+
+                if (!string.IsNullOrWhiteSpace(imageUrl))
                 {
-                    ApplyIconAndTrack(actionButton, iconPack, iconId, iconString);
-                    LastTitleByButton[actionButton.Guid] = resolvedTitle;
-                    return;
+                    using var original = await SpotifyClient.DownloadImageAsync(imageUrl);
+                    using var resized = ImageProcessing.ToSquareImage(original, 128);
+
+                    if (existing != null)
+                    {
+                        IconManager.DeleteIcon(iconPack, existing);
+                    }
+
+                    IconManager.AddIconImage(iconPack, resized, iconIdBase);
+                    IconManager.SaveIconPack(iconPack);
+
+                    await Task.Delay(300);
+
+                    IconManager.LoadIconPack(IconPackFolder);
+                    TryRefreshIconPack(SpotifyAlbumCoverPlugin.Instance);
                 }
-
-                if (!IsRefreshDue(key, config.MinRefreshSeconds))
-                {
-                    ApplyIconAndTrack(actionButton, iconPack, iconId, iconString);
-                    LastTitleByButton[actionButton.Guid] = resolvedTitle;
-                    return;
-                }
-            }
-            else if (!IsRefreshDue(key, config.MinRefreshSeconds))
-            {
-                MacroDeckLogger.Info(ImageFromUrlPlugin.Instance, "Skipping Spotify fetch due to refresh cooldown.");
-                return;
             }
 
-            if (!IsButtonCooldownDue(actionButton.Guid))
-            {
-                MacroDeckLogger.Info(ImageFromUrlPlugin.Instance, "Skipping Spotify fetch due to button cooldown.");
-                return;
-            }
+            var iconString = $"{IconPackName}.{iconIdBase}";
 
-            LastFetchByButton[actionButton.Guid] = DateTimeOffset.UtcNow;
-            NextAllowedByButton[actionButton.Guid] = DateTimeOffset.UtcNow.AddSeconds(
-                MinButtonCooldownSeconds + Random.Shared.Next(0, ButtonCooldownJitterSeconds + 1));
+            ApplyIconAndTrack(actionButton, iconPack, iconIdBase, iconString);
 
-            var imageUrl = await SpotifyClient.SearchAlbumArtUrlAsync(resolvedTitle, resolvedArtist, ImageFromUrlPlugin.Instance);
-            if (string.IsNullOrWhiteSpace(imageUrl))
-            {
-                MacroDeckLogger.Warning(ImageFromUrlPlugin.Instance, "Spotify search returned no album art.");
-                return;
-            }
-
-            using var original = await SpotifyClient.DownloadImageAsync(imageUrl);
-            using var resized = ImageProcessing.ToSquareImage(original, 128);
-
-            if (existing == null)
-            {
-                IconManager.AddIconImage(iconPack, resized, iconId);
-                IconManager.SaveIconPack(iconPack);
-                TryRefreshIconPack(ImageFromUrlPlugin.Instance);
-            }
-
-            ApplyIconAndTrack(actionButton, iconPack, iconId, iconString);
             LastFetchByKey[key] = DateTimeOffset.UtcNow;
             LastTitleByButton[actionButton.Guid] = resolvedTitle;
         }
         catch (Exception ex)
         {
-            MacroDeckLogger.Error(ImageFromUrlPlugin.Instance, typeof(SpotifyImageAction), ex.Message);
+            MacroDeckLogger.Error(SpotifyAlbumCoverPlugin.Instance, typeof(SpotifyImageAction), "Error in UpdateButtonIconAsync: " + ex.Message);
         }
     }
 
@@ -318,7 +412,7 @@ public sealed class SpotifyImageAction : PluginAction
         }
 
         LastIconIdByButton[buttonGuid] = iconId;
-        IconUsageCounts.AddOrUpdate(iconId, 1, (_, count) => count + 1);
+        _ = IconUsageCounts.AddOrUpdate(iconId, 1, (_, count) => count + 1);
     }
 
     private static void ReleaseIconForButton(string buttonGuid, IconPack iconPack)
@@ -369,19 +463,24 @@ public sealed class SpotifyImageAction : PluginAction
 
         IconManager.DeleteIcon(iconPack, icon);
         IconManager.SaveIconPack(iconPack);
-        TryRefreshIconPack(ImageFromUrlPlugin.Instance);
+        TryRefreshIconPack(SpotifyAlbumCoverPlugin.Instance);
     }
 
-    private static void ApplyIcon(ActionButton actionButton, string iconString)
-    {
-        actionButton.IconOff = iconString;
-        if (string.IsNullOrWhiteSpace(actionButton.IconOn))
-        {
-            actionButton.IconOn = iconString;
-        }
+private static void ApplyIcon(ActionButton actionButton, string iconString)
+{
+    actionButton.IconOff = iconString;
+    actionButton.IconOn = iconString;
+    actionButton.UpdateBindingState();
 
-        actionButton.UpdateBindingState();
-    }
+    // Trigger für das Tablet
+    SuchByte.MacroDeck.Variables.VariableManager.SetValue(
+        "spotify_sync_trigger", 
+        DateTime.Now.Ticks.ToString(), 
+        SuchByte.MacroDeck.Variables.VariableType.String, 
+        SpotifyAlbumCoverPlugin.Instance, 
+        [string.Empty]
+    );
+}
 
     private static void ClearIcon(ActionButton actionButton)
     {
@@ -390,7 +489,7 @@ public sealed class SpotifyImageAction : PluginAction
         actionButton.UpdateBindingState();
     }
 
-    private static void TryRefreshIconPack(ImageFromUrlPlugin plugin)
+    private static void TryRefreshIconPack(SpotifyAlbumCoverPlugin plugin)
     {
         try
         {
@@ -412,7 +511,7 @@ public sealed class SpotifyImageAction : PluginAction
                 WriteIndented = true
             }));
 
-            IconManager.LoadIconPack(IconPackFolder);
+            _ = IconManager.LoadIconPack(IconPackFolder);
         }
         catch (Exception ex)
         {
@@ -420,3 +519,5 @@ public sealed class SpotifyImageAction : PluginAction
         }
     }
 }
+
+

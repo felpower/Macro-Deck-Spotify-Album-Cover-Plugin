@@ -7,6 +7,8 @@
     <UseWindowsForms>true</UseWindowsForms>
     <UseSystemDrawing>true</UseSystemDrawing>
     <NoWarn>$(NoWarn);MSB3277</NoWarn>
+    <AssemblyName>SpotifyAlbumCoverPlugin</AssemblyName>
+    <RootNamespace>SpotifyAlbumCoverPlugin</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>

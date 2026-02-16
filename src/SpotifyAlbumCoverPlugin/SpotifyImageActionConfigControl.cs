@@ -1,7 +1,7 @@
 using System.Windows.Forms;
 using SuchByte.MacroDeck.GUI.CustomControls;
 
-namespace ImageFromUrlPlugin;
+namespace SpotifyAlbumCoverPlugin;
 
 public sealed class SpotifyImageActionConfigControl : ActionConfigControl
 {
@@ -24,13 +24,13 @@ public sealed class SpotifyImageActionConfigControl : ActionConfigControl
             Padding = new Padding(6),
             AutoSize = true
         };
-        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 30));
-        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 70));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
-        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        _ = layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 30));
+        _ = layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 70));
+        _ = layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
+        _ = layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
+        _ = layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
+        _ = layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
+        _ = layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
         var titleLabel = new Label { Text = "Title", Dock = DockStyle.Fill, TextAlign = System.Drawing.ContentAlignment.MiddleLeft };
         var artistLabel = new Label { Text = "Artist", Dock = DockStyle.Fill, TextAlign = System.Drawing.ContentAlignment.MiddleLeft };
@@ -94,3 +94,5 @@ public sealed class SpotifyImageActionConfigControl : ActionConfigControl
         return true;
     }
 }
+
+

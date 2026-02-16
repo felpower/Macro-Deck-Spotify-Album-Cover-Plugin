@@ -6,7 +6,7 @@ using System.Text.Json;
 using SuchByte.MacroDeck.Logging;
 using SuchByte.MacroDeck.Plugins;
 
-namespace ImageFromUrlPlugin;
+namespace SpotifyAlbumCoverPlugin;
 
 public static class SpotifyClient
 {
@@ -142,7 +142,7 @@ public static class SpotifyClient
         }
         finally
         {
-            TokenLock.Release();
+            _ = TokenLock.Release();
         }
     }
 
@@ -171,7 +171,7 @@ public static class SpotifyClient
         }
         finally
         {
-            RequestLock.Release();
+            _ = RequestLock.Release();
         }
     }
 
@@ -240,7 +240,7 @@ public static class SpotifyClient
 
         if (entry.ExpiresAt <= DateTimeOffset.UtcNow)
         {
-            AlbumArtCache.TryRemove(cacheKey, out _);
+            _ = AlbumArtCache.TryRemove(cacheKey, out _);
             return false;
         }
 
@@ -248,3 +248,5 @@ public static class SpotifyClient
         return !string.IsNullOrWhiteSpace(url);
     }
 }
+
+

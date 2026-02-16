@@ -2,15 +2,15 @@ using System.Drawing;
 using System.Windows.Forms;
 using SuchByte.MacroDeck.Plugins;
 
-namespace ImageFromUrlPlugin;
+namespace SpotifyAlbumCoverPlugin;
 
 public sealed class SpotifyCredentialsForm : Form
 {
-    private readonly ImageFromUrlPlugin _plugin;
+    private readonly SpotifyAlbumCoverPlugin _plugin;
     private readonly TextBox _clientIdTextBox;
     private readonly TextBox _clientSecretTextBox;
 
-    public SpotifyCredentialsForm(ImageFromUrlPlugin plugin)
+    public SpotifyCredentialsForm(SpotifyAlbumCoverPlugin plugin)
     {
         _plugin = plugin;
 
@@ -28,8 +28,8 @@ public sealed class SpotifyCredentialsForm : Form
             RowCount = 4,
             Padding = new Padding(10)
         };
-        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 100));
-        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        _ = layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 100));
+        _ = layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
 
         var clientIdLabel = new Label { Text = "Client ID", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft };
         var clientSecretLabel = new Label { Text = "Client Secret", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft };
@@ -71,3 +71,5 @@ public sealed class SpotifyCredentialsForm : Form
         Close();
     }
 }
+
+

@@ -2,13 +2,20 @@ param(
     [string]$Configuration = "Release"
 )
 
+$process = Get-Process "Macro Deck 2" -ErrorAction SilentlyContinue
+if ($process) {
+    Write-Host "Closing Macro Deck..."
+    Stop-Process -Name "Macro Deck 2" -Force
+    Start-Sleep -Seconds 2
+}
+
 $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$project = Join-Path $root "src\ImageFromUrlPlugin\ImageFromUrlPlugin.csproj"
-$buildDir = Join-Path $root "src\ImageFromUrlPlugin\bin\$Configuration\net8.0-windows"
-$deployDir = Join-Path $env:APPDATA "Macro Deck\plugins\felba.ImageFromUrl"
-$packagePath = Join-Path $root "ImageFromURL.macroDeckPlugin"
+$project = Join-Path $root "src\SpotifyAlbumCoverPlugin\SpotifyAlbumCoverPlugin.csproj"
+$buildDir = Join-Path $root "src\SpotifyAlbumCoverPlugin\bin\$Configuration\net8.0-windows"
+$deployDir = Join-Path $env:APPDATA "Macro Deck\plugins\felba.SpotifyAlbumCoverPlugin"
+$packagePath = Join-Path $root "SpotifyAlbumCoverPlugin.macroDeckPlugin"
 $tmp = Join-Path $root "_macrodeck_pkg_tmp"
 
 Write-Host "Building..."
@@ -21,8 +28,8 @@ Get-ChildItem -Path $buildDir -File | Copy-Item -Destination $deployDir -Force
 Write-Host "Packaging .macroDeckPlugin..."
 if (Test-Path $tmp) { Remove-Item -Recurse -Force $tmp }
 New-Item -ItemType Directory -Path $tmp | Out-Null
-Copy-Item -Path (Join-Path $buildDir "ImageFromUrlPlugin.dll") -Destination $tmp -Force
-Copy-Item -Path (Join-Path $buildDir "ImageFromUrlPlugin.deps.json") -Destination $tmp -Force
+Copy-Item -Path (Join-Path $buildDir "SpotifyAlbumCoverPlugin.dll") -Destination $tmp -Force
+Copy-Item -Path (Join-Path $buildDir "SpotifyAlbumCoverPlugin.deps.json") -Destination $tmp -Force
 Copy-Item -Path (Join-Path $buildDir "ExtensionManifest.json") -Destination $tmp -Force
 Copy-Item -Path (Join-Path $buildDir "ExtensionIcon.png") -Destination $tmp -Force
 

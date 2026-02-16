@@ -3,7 +3,7 @@ using System.Drawing.Drawing2D;
 using System.Security.Cryptography;
 using System.Text;
 
-namespace ImageFromUrlPlugin;
+namespace SpotifyAlbumCoverPlugin;
 
 public static class ImageProcessing
 {
@@ -27,9 +27,16 @@ public static class ImageProcessing
     public static string CreateDeterministicIconId(string title, string artist)
     {
         var input = $"{title}|{artist}";
+        return CreateDeterministicIconIdFromString(input);
+    }
+
+    public static string CreateDeterministicIconIdFromString(string input)
+    {
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(input));
         var guidBytes = new byte[16];
         Array.Copy(bytes, guidBytes, 16);
         return new Guid(guidBytes).ToString();
     }
 }
+
+
