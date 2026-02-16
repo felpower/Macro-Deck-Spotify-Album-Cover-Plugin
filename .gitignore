@@ -18,6 +18,7 @@
 *.cache
 *.macroDeckPlugin
 _macrodeck_pkg_tmp/
+rebuild-redeploy.ps1
 
 # Test results
 TestResults/
